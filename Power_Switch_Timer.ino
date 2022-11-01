@@ -32,46 +32,49 @@
 //#define USE_WIFI
 //#define TIMER_INTERRUPT_DEBUG      1                  // For "ESP x TimerInterrupt.h"
 //#define USE_NEO_PIXEL
+#define TZ    "UTC + 5" // configuration should be done in firmware
 
 //-------------------------------------------------------------------------------------------------
 // Include file(s)
 //-------------------------------------------------------------------------------------------------
 
-#ifdef USE_ESP32
-    #include <WiFi.h>
-    #include "ESPAsyncWebServer.h"
-#else
-    #include <ESP8266WiFi.h>
-    #include <ESP8266WebServer.h>
-#endif
+#include <WiFi.h>
+#include "ESPAsyncWebServer.h"
+#include <ESP32TimerInterrupt.h>
+//#include <ESP32_ISR_Timer-Impl.h>
+//#include <ESP32_ISR_Timer.h>
 
-#ifdef USE_ESP32
-    #include <ESP32TimerInterrupt.h>
-    //#include <ESP32_ISR_Timer-Impl.h>
-    //#include <ESP32_ISR_Timer.h>
-#else
-    #include <ESP8266TimerInterrupt.h>
-    //#include <ESP8266_ISR_Timer-Impl.h>
-    //#include <ESP8266_ISR_Timer.h>
-#endif
+//****************************************************************
+// from susnset sunrise example
+// Time library - https://github.com/PaulStoffregen/Time
+#include "Time.h"
+#include <math.h>
 
-#ifdef USE_NEO_PIXEL
-#include <Adafruit_NeoPixel.h>
-#endif
+//****************************************************************
 
 //-------------------------------------------------------------------------------------------------
 // Define(s)
 //-------------------------------------------------------------------------------------------------
 
-#define PIN                     13           // Which pin on the ESP8266 is connected to the NeoPixels?
+// Sunrise stuff
+#define PI 3.1415926
+#define ZENITH -.83
+/*
+#define Stirling_Latitude 56.138607900000000000
+#define Stirling_Longitude -3.944080100000064700
+*/
 
-#ifdef USE_ESP32
-#define LED_BUILTIN             2            // Led on ESP32
-#endif
+// Lat long for your location
+#define HERE_LATITUDE  56.1386079
+#define HERE_LONGITUDE -3.9440801
+
+// LED - blinks on trigger events
+#define LED_BUILTIN             2
+// Relay pins
+#define RELAY_1                 9
+#define RELAY_2                 10
 
 #define TIMER_INTERVAL_MS       1000
-#define MAX_STEP                26
-#define NUMBER_OF_COLOR         13
 //#define MIN_RANDOM_TIMING       4000                 // 1000 = 1 sec
 //#define MAX_RANDOM_TIMING       20000
 
@@ -81,144 +84,85 @@
 #define DelayHasEnded(DELAY)  ((millis() > DELAY) ? true : false)
 
 // ****************************************************************************
-// Typedefs 
-
-typedef enum
-{
-    PIXEL_0,
-    PIXEL_1,
-    PIXEL_2,
-    PIXEL_3,
-    PIXEL_4,
-    PIXEL_5,
-    PIXEL_6,
-    PIXEL_7,
-    
-    NUMBER_OF_PIXEL,
-    FIRST_PIXEL = 0,
-} Pixel_t;
-
-typedef struct
-{
-  uint8_t Red;
-  uint8_t Green;
-  uint8_t Blue;
-} Color_t;
-
-// ****************************************************************************
 // Variables 
 
-#ifdef USE_WIFI
-    const char* ssid = "Timer";   
-    const char* password = "Magic";
+const char* ssid     = "AR_WIFI";   
+const char* password = "the wifi password";
 
-    // Put IP Address details
-    IPAddress local_ip(192,168,1,1);
-    IPAddress gateway(192,168,1,1);
-    IPAddress subnet(255,255,255,0);
+// Put IP Address details
+IPAddress local_IP(192,168,1,1);
+IPAddress Gateway(192,168,1,1);
+IPAddress Subnet(255,255,255,0);
+IPAddress primaryDNS(8, 8, 8, 8);   // put avahi RPI local DNS
+IPAddress secondaryDNS(8, 8, 4, 4); // optional
 
-    #ifdef USE_ESP32
-  AsyncWebServer server(80);          // Set to port 80 as server
- #else
-  ESP8266WebServer server(80);        // Set to port 80 as server
- #endif // USE_ESP32
-
-#endif // USE_WIFI
+AsyncWebServer server(80);          // Set to port 80 as server
 
 uint32_t TickCounter;
 
- #ifdef USE_ESP32
-  ESP32Timer Timer(0);
- #else
-  ESP8266Timer Timer(1);
- #endif // USE_ESP32
+ESP32Timer Timer(0);
 
-Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMBER_OF_PIXEL, PIN, NEO_GRB + NEO_KHZ800);
-
-const uint8_t PixPercent[MAX_STEP] =
-{
-    0, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 100,   // Ascending 
-    64, 48, 32, 24, 16, 12, 8, 6, 4, 2, 1, 0            // Descending
-};
-
-const Color_t Color[13]
-{
-  {255, 0,   0  },    // Red
-  {0,   255, 0  },    // Lime
-  {0,   0,   255},    // Blue
-  {255, 255, 0  },    // Yellow
-  {0,   255, 255},    // Cyan
-  {255, 0,   255},    // Magenta
-  {255, 255 ,255},    // White  
-  {128, 0,   0  },    // Dark Yellow  
-  {128, 128, 0  },    // Olive
-  {0,   128, 0  },    // Green
-  {0,   128, 128},    // Teal
-  {0,   0,   128},    // Navy
-  {128, 128 ,128},    // White  
-};
+//bool IsIsTimeToUpdate = false;
+uint8_t Button;
 
 
-bool IsIsTimeToUpdate = false;
-bool RequestAllPixel  = false;
-uint32_t GoCrazy  = 0;
+int thisYear   = 2015;
+int thisMonth  = 6;
+int thisDay    = 27;
+int lastDay    = 0;
+int thisHour   = 0;
+int thisMinute = 0;
+int thisSecond = 0;
 
-uint8_t  PixRed[NUMBER_OF_PIXEL];
-uint8_t  PixGreen[NUMBER_OF_PIXEL];
-uint8_t  PixBlue[NUMBER_OF_PIXEL];
-uint32_t PixTiming[NUMBER_OF_PIXEL];
-uint32_t PixStep[NUMBER_OF_PIXEL];
+float thisLat  = HERE_LATITUDE;
+float thisLong = HERE_LONGITUDE;
+float thisLocalOffset = 0;
+int   thisDaylightSavings = 1;
+
+
+#if 0 // from sunset sunrise
+
+// Create USB serial port
+//USBSerial serial_debug;
+
+// Digital clock variables
+byte omm = 0;
+//byte ss=0;
+byte xcolon = 0;
+
+#endif
+
+
 
 // ****************************************************************************
 
 void IRAM_ATTR TimerHandler(void)
 {
     TickCounter++;
-
-  #ifdef USE_ESP32
     static bool Toggle = false;
-  
+
     if((TickCounter % 2000) == 0)
     {
         digitalWrite(LED_BUILTIN, Toggle);
         Toggle = !Toggle;
-        // RequestAllPixel = true;
-        GoCrazy = 2000;
     }
-  #endif  
 }
 
 // ****************************************************************************
 
 void setup()
 {
+    // Should pickup actual time from the router
+    
     Serial.begin(115200);
     Serial.println();
-    Serial.println("Lucioles Magiques");
+    Serial.println("Power Switch Timer");
     Serial.println("Initialiser serveur");
-
-  #ifdef USE_WIFI
     SetupWifi();
-  #endif // USE_WIFI
-
-  #ifdef USE_ESP32
     pinMode(LED_BUILTIN, OUTPUT);
-  #endif // USE_ESP32
-    
-    pixels.begin(); // This initializes the NeoPixel library.
-
-    // if analog input pin 0 is unconnected, random analog
-    // noise will cause the call to randomSeed() to generate
-    // different seed numbers each time the sketch runs.
-    // randomSeed() will then shuffle the random function.
-    randomSeed(analogRead(0));
+    pinMode(RELAY_1, OUTPUT);
+    pinMode(RELAY_2, OUTPUT);
   
-    // Randomize all value for pixel
-    for(int Pixel = (int)FIRST_PIXEL; Pixel < (int)NUMBER_OF_PIXEL; Pixel++)
-    {
-        SetNextPixel(Pixel);
-    }
-
     // Interval in microsecs
     if(Timer.attachInterruptInterval(TIMER_INTERVAL_MS * 16, TimerHandler))
     {
@@ -234,189 +178,98 @@ void setup()
 
 void loop()
 {
-    if(RequestAllPixel == true)
-    {
-        for(int Pixel = (int)FIRST_PIXEL; Pixel < (int)NUMBER_OF_PIXEL; Pixel++)
-        {
-            PixStep[Pixel] = 1;
-            IsIsTimeToUpdate = true;
-        }
-        
-        RequestAllPixel = false;
-    }
-    else
-    {
-        for(int Pixel = (int)FIRST_PIXEL; Pixel < (int)NUMBER_OF_PIXEL; Pixel++)
-        {
-            if(PixStep[Pixel] != 0)
-            {
-               PixStep[Pixel]++;
-    
-               if(PixStep[Pixel] == MAX_STEP)
-               {
-                  PixStep[Pixel] = 0;
-                  SetNextPixel(Pixel);
-               }
-               else
-               {
-                  IsIsTimeToUpdate = true;
-               //   Serial.printf("%d - %d \r\n", Pixel, PixPercent[PixStep[Pixel]]);
-               }
-            }
-            else
-            {      
-                if(DelayHasEnded(PixTiming[Pixel]))
-                {
-                    PixStep[Pixel]++;
-                    IsIsTimeToUpdate = true;
-                 //  Serial.printf("%d - %d \r\n", Pixel, PixPercent[PixStep[Pixel]]);
-                }
-            }
-        }
-    }
-  /*
-   IsIsTimeToUpdate = true;
-   PixStep[0]++;
-   if(PixStep[0] >= MAX_STEP)
-   {
-      SetNextPixel(0);
-     PixStep[0] = 0;
-   }
-   //delay(840);
-  */
-    if(IsIsTimeToUpdate == true)
-    {
-        uint8_t Red;
-        uint8_t Green;
-        uint8_t Blue;
-
-        IsIsTimeToUpdate = false;
-        
-        // Update Pixel
-        for(int Pixel = (int)FIRST_PIXEL; Pixel < (int)NUMBER_OF_PIXEL; Pixel++)
-        {
-
-            Red   = (uint8_t)(((uint32_t)PixPercent[PixStep[Pixel]] * PixRed  [Pixel]) / 100);
-            Green = (uint8_t)(((uint32_t)PixPercent[PixStep[Pixel]] * PixGreen[Pixel]) / 100);
-            Blue  = (uint8_t)(((uint32_t)PixPercent[PixStep[Pixel]] * PixBlue [Pixel]) / 100);
-
-            // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
-            pixels.setPixelColor(Pixel, pixels.Color(Red, Green, Blue));
-        }
- 
-        pixels.show(); // This sends the updated pixel color to the hardware.
-    }
-
-    delay(8);
-    if(GoCrazy != 0)
-    {
-        if(GoCrazy == 200)
-        {
-            Serial.println("Go Crazy");
-            for(int Pixel = (int)FIRST_PIXEL; Pixel < (int)NUMBER_OF_PIXEL; Pixel++)
-            {
-                if(PixStep[Pixel] == 0)
-                {
-                    SetNextPixel(Pixel);
-                }
-            }
-        }
-        GoCrazy--;
-        if(GoCrazy == 0)Serial.println("Go Normal");
-    }
+//                if(DelayHasEnded(PixTiming[Pixel]))
+//                {
+//  Serial.printf("%d - %d \r\n", Pixel, PixPercent[PixStep[Pixel]]);
+//                }
     
     //Serial.println("Timer millis() = " + String(millis()));
     //Serial.printf("%ld", TickCounter);
 
-  #ifdef USE_WIFI
-   #ifndef USE_ESP32
-    server.handleClient();
-   #endif // USE_ESP32
-  #endif // USE_WIFI
-}
+    // Show time, date, sunrise and sunset
+    tt = rt.getTime();
+    thisYear = year(tt);
+    thisMonth = month(tt);
+    thisDay = day(tt);
+    thisHour = hour(tt);
+    thisMinute = minute(tt);
+    thisSecond = second(tt);
 
-// ****************************************************************************
-
-void SetNextPixel(int PixelID)
-{
-    uint8_t NewColor;
-  
-    // randomize all value for pixel driving
-    NewColor = random(NUMBER_OF_COLOR);
-    PixRed  [PixelID]  = Color[NewColor].Red;
-    PixGreen[PixelID]  = Color[NewColor].Green;
-    PixBlue [PixelID]  = Color[NewColor].Blue;
-    
-    if(GoCrazy != 0)
+    //  showTime();
+    // Send time to web page
+    if(lastDay != thisDay)
     {
-        PixTiming[PixelID] = millis() + random(MIN_RANDOM_TIMING_CRAZY, MAX_RANDOM_TIMING_CRAZY);
+        //showDate();
+        // Send date to web page
     }
-    else
-    {
-        PixTiming[PixelID] = millis() + random(MIN_RANDOM_TIMING, MAX_RANDOM_TIMING);
-    }
+    lastDay = thisDay;
+
+    showSunrise();
+    // Send Sunrise to web page
+
+    showSunset();
+    // Send Sunset to web page
+
+    // serialCurrentTime();
+
 }
-
-// ****************************************************************************
-
-#ifdef USE_WIFI
 
 // ****************************************************************************
 
 void SetupWifi()
 {
-  #ifdef USE_ESP32
-    WiFi.mode(WIFI_AP);
-  #endif // USE_ESP32
-    WiFi.softAP(ssid, password);
-    WiFi.softAPConfig(local_ip, gateway, subnet);
-    delay(1000);
+    WiFi.mode(WIFI_STA);
 
-    IPAddress IP = WiFi.softAPIP();
-    Serial.print("AP Address IP: ");
-    Serial.println(IP);
+    // Configures static IP address
+    if (WiFi.config(Local_IP, Gateway, Subnet, PrimaryDNS, SecondaryDNS) == 0)
+    {
+        Serial.println("STA Failed to configure");
+    }
 
-    // Print ESP8266 Local IP Address
+    WiFi.begin(ssid, password);
+
+    Serial.print("Connecting to WiFi ..");
+    
+    while(WiFi.status() != WL_CONNECTED)
+    {
+        Serial.print('.');
+        delay(500);
+    }
+    
+    Serial.println("");
+    Serial.println("WiFi connected.");
+    Serial.println("");
+    Serial.println("IP address: ");
     Serial.println(WiFi.localIP());
-   
-  #ifdef USE_ESP32
+    Serial.print("MAC:  ");
+    Serial.println(WiFi.macAddress());
+    Serial.print("RRSI: ");
+    Serial.println(WiFi.RSSI());
+    Serial.println("");
+  
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-        Serial.println("GPIO7 Status: OFF | GPIO6 Status: OFF");
+        Serial.println("Status 1: OFF | Status 2: OFF");
         request->send(200, "/text.html",  SendHTML(0));
     });
 
-    server.on("/All", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/BT1", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-        Serial.println("Toutes les Lucioles sweep");
-        request->send(200, "/text.html",  SendHTML(LUCIOLE_1 | LUCIOLE_2 | LUCIOLE_3));
+        Serial.println("Button 1");
+        request->send(200, "/text.html",  SendHTML(BUTTON_1));
     });
 
-    server.on("/luc1", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/BT2", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-        Serial.println("Luciole 1 sweep");
-        request->send(200, "/text.html",  SendHTML(LUCIOLE_1));
+        Serial.println("Button 2");
+        request->send(200, "/text.html",  SendHTML(BUTTON_2));
     });
 
-    server.on("/luc2", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/BT", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-        Serial.println("Luciole 2 sweep");
-        request->send(200, "/text.html",  SendHTML(LUCIOLE_2));
+        Serial.println("Button 3");
+        request->send(200, "/text.html",  SendHTML(BUTTON_3));
     });
-
-    server.on("/luc3", HTTP_GET, [](AsyncWebServerRequest *request)
-    {
-        Serial.println("Luciole 3 sweep");
-        request->send(200, "/text.html",  SendHTML(LUCIOLE_3));
-    });
-  #else // !USE_ESP32
-    server.on("/",          HandleOnConnect);
-    server.on("/All",       HandleAll);
-    server.on("/luc1",      HandleLuciole_1);
-    server.on("/luc2",      HandleLuciole_2);
-    server.on("/luc3",      HandleLuciole_3);
-    server.onNotFound(HandleNotFound);
-  #endif // !USE_ESP32
 
     server.begin();
     Serial.println("Serveur HTTP Prêt");
@@ -424,47 +277,7 @@ void SetupWifi()
 
 // ****************************************************************************
 
-#ifndef USE_ESP32
-
-void HandleOnConnect()
-{
-    Serial.println("GPIO7 Status: OFF | GPIO6 Status: OFF");
-    server.send(200, "text/html", SendHTML(0)); 
-}
-
-void HandleAll()
-{
-    Serial.println("Toutes les Lucioles sweep");
-    server.send(200, "text/html", SendHTML(LUCIOLE_1 | LUCIOLE_2 | LUCIOLE_3)); 
-}
-
-void HandleLuciole_1()
-{
-    Serial.println("Luciole 1 sweep");
-    server.send(200, "text/html", SendHTML(LUCIOLE_1)); 
-}
-
-void HandleLuciole_2()
-{
-    Serial.println("Luciole 2 sweep");
-    server.send(200, "text/html", SendHTML(LUCIOLE_2)); 
-}
-
-void HandleLuciole_3()
-{
-    Serial.println("Luciole 3 sweep");
-    server.send(200, "text/html", SendHTML(LUCIOLE_3)); 
-}
-
-void HandleNotFound()
-{
-    server.send(404, "text/plain", "404, Non Trouvé");
-}
-#endif // !USE_ESP32
-
-// ****************************************************************************
-
-String SendHTML(uint8_t Lucioles)
+String SendHTML(uint8_t Buttons)
 {
     String ptr = "<!DOCTYPE html> <html>\n";
     ptr +="<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
@@ -621,15 +434,15 @@ String SendHTML(uint8_t Lucioles)
     ptr +="</style>\n";
     ptr +="</head>\n";
     ptr +="<body>\n";
-    ptr +="<h1>Lucioles Magiques</h1>\n";
+    ptr +="<h1>Power Switch Timer</h1>\n";
     ptr +="<h3>Copyright (c) Alain Royer 2020</h3>\n";
   
-    if(Lucioles & LUCIOLE_1) { ptr +="<p>Lucioles 1: ON  </p><a class=\"button button-off\" href=\"/led1off\">OFF</a>\n"; }
-    else                     { ptr +="<p>Lucioles 1: OFF </p><a class=\"button button-on\" href=\"/led1on\">ON</a>\n";    }
-    if(Lucioles & LUCIOLE_2) { ptr +="<p>Lucioles 2: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>\n";   }
-    else                     { ptr +="<p>Lucioles 2: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>\n";     }
-    if(Lucioles & LUCIOLE_3) { ptr +="<p>Lucioles 3: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>\n";   }
-    else                     { ptr +="<p>Lucioles 3: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>\n";     }
+    if(Buttons & BUTTON_1) { ptr +="<p>Buttons 1: ON  </p><a class=\"button button-off\" href=\"/led1off\">OFF</a>\n"; }
+    else                   { ptr +="<p>Buttons 1: OFF </p><a class=\"button button-on\" href=\"/led1on\">ON</a>\n";    }
+    if(Buttons & BUTTON_2) { ptr +="<p>Buttons 2: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>\n";   }
+    else                   { ptr +="<p>Buttons 2: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>\n";     }
+    if(Buttons & BUTTON_3) { ptr +="<p>Buttons 3: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>\n";   }
+    else                   { ptr +="<p>Buttons 3: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>\n";     }
 
     ptr +="</body>\n";
     ptr +="</html>\n";
@@ -638,4 +451,241 @@ String SendHTML(uint8_t Lucioles)
 
 // ****************************************************************************
 
-#endif // USE_WIFI
+float calculateSunrise(int year, int month, int day, float lat, float lng, int localOffset, int daylightSavings)
+{
+    boolean rise = 1;
+    return calculateSunriseSunset(year, month, day, lat, lng, localOffset, daylightSavings, rise) ;
+}
+
+// ****************************************************************************
+
+float calculateSunset(int year, int month, int day, float lat, float lng, int localOffset, int daylightSavings)
+{
+    boolean rise = 0;
+    return calculateSunriseSunset(year, month, day, lat, lng, localOffset, daylightSavings, rise) ;
+}
+
+// ****************************************************************************
+
+float calculateSunriseSunset(int year, int month, int day, float lat, float lng, int localOffset, int daylightSavings, boolean rise)
+{
+    // localOffset will be <0 for western hemisphere and >0 for eastern hemisphere
+    // daylightSavings should be 1 if it is in effect during the summer otherwise it should be 0
+
+    // 1. first calculate the day of the year
+    float N1 = floor(275 * month / 9);
+    float N2 = floor((month + 9) / 12);
+    float N3 = (1 + floor((year - 4 * floor(year / 4) + 2) / 3));
+    float N = N1 - (N2 * N3) + day - 30;
+
+    // 2. convert the longitude to hour value and calculate an approximate time
+    float lngHour = lng / 15.0;
+
+    float t = 0;
+    
+    if(rise != 0)
+    {
+        t = N + ((6 - lngHour) / 24);   //if rising time is desired:
+    }
+    else
+    {
+        t = N + ((18 - lngHour) / 24);   //if setting time is desired:
+    }
+    
+    // 3. calculate the Sun's mean anomaly
+    float M = (0.9856 * t) - 3.289;
+
+    // 4. calculate the Sun's true longitude
+    float L = fmod(M + (1.916 * sin((PI / 180) * M)) + (0.020 * sin(2 * (PI / 180) * M)) + 282.634, 360.0);
+
+    // 5a. calculate the Sun's right ascension
+    float RA = fmod(180 / PI * atan(0.91764 * tan((PI / 180) * L)), 360.0);
+
+    // 5b. right ascension value needs to be in the same quadrant as L
+    float Lquadrant  = floor( L / 90) * 90;
+    float RAquadrant = floor(RA / 90) * 90;
+    RA = RA + (Lquadrant - RAquadrant);
+
+    // 5c. right ascension value needs to be converted into hours
+    RA = RA / 15;
+
+    // 6. calculate the Sun's declination
+    float sinDec = 0.39782 * sin((PI / 180) * L);
+    float cosDec = cos(asin(sinDec));
+
+    // 7a. calculate the Sun's local hour angle
+    float cosH = (sin((PI / 180) * ZENITH) - (sinDec * sin((PI / 180) * lat))) / (cosDec * cos((PI / 180) * lat));
+  
+    /*
+    if (cosH >  1)
+    the sun never rises on this location (on the specified date)
+    if (cosH < -1)
+    the sun never sets on this location (on the specified date)
+    */
+
+    // 7b. finish calculating H and convert into hours
+    float H = 0;
+  
+    if(rise != 0)
+    {
+        //Serial.print("#sunrise");
+        H = 360 - (180 / PI) * acos(cosH); //   if if rising time is desired:
+        //Serial.println(H);
+    }
+    else
+    {
+        //Serial.print("# sunset ");
+        H = (180 / PI) * acos(cosH); // if setting time is desired:
+        //Serial.println(H);
+    }
+  
+    //float H = (180/PI)*acos(cosH) // if setting time is desired:
+    H = H / 15;
+
+    //8. calculate local mean time of rising/setting
+    float T = H + RA - (0.06571 * t) - 6.622;
+
+    // 9. adjust back to UTC
+    float UT = fmod(T - lngHour, 24.0);
+
+    // 10. convert UT value to local time zone of latitude/longitude
+    return UT + localOffset + daylightSavings;
+}
+
+//-----------------------------------------------------------------------------
+
+void showSunrise()
+{
+    float localT = calculateSunrise(thisYear, thisMonth, thisDay, thisLat, thisLong, thisLocalOffset, thisDaylightSavings);
+    double hours;
+    float minutes = modf(localT, &hours) * 60;
+    //TFT.print("Sunrise ");
+    //TFT.print(uint(hours));
+    //TFT.print(":");
+    
+    if(uint(minutes) < 10)
+    {
+        //TFT.print("0");
+    }
+    
+    //TFT.print(uint(minutes));
+}
+
+//-----------------------------------------------------------------------------
+
+void showSunset()
+{
+    float localT = calculateSunset(thisYear, thisMonth, thisDay, thisLat, thisLong, thisLocalOffset, thisDaylightSavings);
+    double hours;
+    float minutes = modf(24 + localT, &hours) * 60;
+    //TFT.print("Sunset ");
+    //TFT.print(uint(24 + localT));
+    //TFT.print(":");
+  
+    if(uint(minutes) < 10)
+    {
+        //TFT.print("0");
+    }
+    //TFT.print(uint(minutes));
+}
+
+//-----------------------------------------------------------------------------
+
+void setCurrentTime()
+{
+    char *arg;
+    arg = sCmd.next();
+    String thisArg = arg;
+    Serial.print("# Time command [");
+    Serial.print(thisArg.toInt() );
+    Serial.println("]");
+    setTime(thisArg.toInt());
+    time_t tt = now();
+    rt.setTime(tt);
+    //serialCurrentTime();
+}
+
+//-----------------------------------------------------------------------------
+
+void serialCurrentTime()
+{
+    Serial.print("# Current time - ");
+  
+    if(hour(tt) < 10)
+    {
+        Serial.print("0");
+    }
+    
+    Serial.print(hour(tt));
+    Serial.print(":");
+    
+    if(minute(tt) < 10)
+    {
+        Serial.print("0");
+    }
+    
+    Serial.print(minute(tt));
+    Serial.print(":");
+    
+    if(second(tt) < 10)
+    {
+        Serial.print("0");
+    }
+  
+    Serial.print(second(tt));
+    Serial.print(" ");
+    Serial.print(day(tt));
+    Serial.print("/");
+    Serial.print(month(tt));
+    Serial.print("/");
+    Serial.print(year(tt));
+    //Serial.println("("TZ")");
+}
+
+//-----------------------------------------------------------------------------
+
+void unrecognized(const char *command) {
+    Serial.print("# Unknown Command.[");
+    Serial.print(command);
+    Serial.println("]");
+}
+
+//-----------------------------------------------------------------------------
+
+void showTime()
+{
+    tt = rt.getTime();
+    byte mm = minute(tt);
+    byte hh = hour(tt);
+    byte ss = second(tt);
+
+/*
+    if (ss % 2)  // Flash the colon
+    {
+        TFT.drawChar(':', xcolon, ypos, 7);
+        relayOneOff();
+        relayTwoOn();
+    }
+    else
+    {
+        TFT.drawChar(':', xcolon, ypos, 7);
+        relayOneOn();
+        relayTwoOff();
+    }
+*/  
+}
+
+//-----------------------------------------------------------------------------
+
+void showDate()
+{
+    // Show RTC Time.
+    tt = rt.getTime();
+    //  TFT.print(day(tt));
+    //  TFT.print("-");
+    //  TFT.print(month(tt));
+    //  TFT.print("-");
+    //  TFT.print(year(tt));
+}
+
+#endif
