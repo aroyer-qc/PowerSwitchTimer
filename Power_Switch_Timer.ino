@@ -57,16 +57,12 @@
 //-------------------------------------------------------------------------------------------------
 
 // Sunrise stuff
-#define PI 3.1415926
-#define ZENITH -.83
-/*
-#define Stirling_Latitude 56.138607900000000000
-#define Stirling_Longitude -3.944080100000064700
-*/
+#define PI                      3.1415926
+#define ZENITH                  -.83
 
 // Lat long for your location
-#define HERE_LATITUDE  56.1386079
-#define HERE_LONGITUDE -3.9440801
+#define MY_LATITUDE             56.1386079
+#define MY_LONGITUDE            -3.9440801
 
 // LED - blinks on trigger events
 #define LED_BUILTIN             2
@@ -86,38 +82,37 @@
 // ****************************************************************************
 // Variables 
 
-const char* ssid     = "AR_WIFI";   
-const char* password = "the wifi password";
+const char*     My_SSID     = "AR_WIFI";   
+const char*     My_Password = "the wifi password";
 
 // Put IP Address details
-IPAddress local_IP(192,168,1,1);
-IPAddress Gateway(192,168,1,1);
-IPAddress Subnet(255,255,255,0);
-IPAddress primaryDNS(8, 8, 8, 8);   // put avahi RPI local DNS
-IPAddress secondaryDNS(8, 8, 4, 4); // optional
+IPAddress       local_IP        (192,168,1,1);
+IPAddress       Gateway         (192,168,1,1);
+IPAddress       Subnet          (255,255,255,0);
+IPAddress       primaryDNS      (192, 168, 1, 102);     // Put avahi RPI local DNS
+IPAddress       secondaryDNS    (8, 8, 4, 4);           // optional
 
-AsyncWebServer server(80);          // Set to port 80 as server
+AsyncWebServer  server          (80);                   // Set to port 80 as server
 
-uint32_t TickCounter;
+uint32_t        TickCounter;
 
-ESP32Timer Timer(0);
+ESP32Timer      Timer           (0);
 
 //bool IsIsTimeToUpdate = false;
-uint8_t Button;
+uint8_t         Button;
 
+int             thisYear            = 2015;
+int             thisMonth           = 6;
+int             thisDay             = 27;
+int             lastDay             = 0;
+int             thisHour            = 0;
+int             thisMinute          = 0;
+int             thisSecond          = 0;
 
-int thisYear   = 2015;
-int thisMonth  = 6;
-int thisDay    = 27;
-int lastDay    = 0;
-int thisHour   = 0;
-int thisMinute = 0;
-int thisSecond = 0;
-
-float thisLat  = HERE_LATITUDE;
-float thisLong = HERE_LONGITUDE;
-float thisLocalOffset = 0;
-int   thisDaylightSavings = 1;
+float           thisLat             = MY_LATITUDE;
+float           thisLong            = MY_LONGITUDE;
+float           thisLocalOffset     = 0;
+int             thisDaylightSavings = 1;
 
 
 #if 0 // from sunset sunrise
@@ -138,8 +133,9 @@ byte xcolon = 0;
 
 void IRAM_ATTR TimerHandler(void)
 {
-    TickCounter++;
     static bool Toggle = false;
+
+    TickCounter++;
 
     if((TickCounter % 2000) == 0)
     {
@@ -153,7 +149,6 @@ void IRAM_ATTR TimerHandler(void)
 void setup()
 {
     // Should pickup actual time from the router
-    
     Serial.begin(115200);
     Serial.println();
     Serial.println("Power Switch Timer");
@@ -166,7 +161,7 @@ void setup()
     // Interval in microsecs
     if(Timer.attachInterruptInterval(TIMER_INTERVAL_MS * 16, TimerHandler))
     {
-        Serial.println("Starting  Timer OK, millis() = " + String(millis()));
+        Serial.println("Starting Timer OK, millis() = " + String(millis()));
     }
     else
     {
@@ -196,6 +191,7 @@ void loop()
     thisSecond = second(tt);
 
     //  showTime();
+  
     // Send time to web page
     if(lastDay != thisDay)
     {
@@ -226,7 +222,7 @@ void SetupWifi()
         Serial.println("STA Failed to configure");
     }
 
-    WiFi.begin(ssid, password);
+    WiFi.begin(My_SSID, My_Password);
 
     Serial.print("Connecting to WiFi ..");
     
@@ -236,16 +232,16 @@ void SetupWifi()
         delay(500);
     }
     
-    Serial.println("");
-    Serial.println("WiFi connected.");
-    Serial.println("");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("MAC:  ");
-    Serial.println(WiFi.macAddress());
-    Serial.print("RRSI: ");
-    Serial.println(WiFi.RSSI());
-    Serial.println("");
+    Serial.println ("");
+    Serial.println ("WiFi connected.");
+    Serial.println ("");
+    Serial.println ("IP address: ");
+    Serial.println (WiFi.localIP());
+    Serial.print   ("MAC:  ");
+    Serial.println (WiFi.macAddress());
+    Serial.print   ("RSSI: ");
+    Serial.println (WiFi.RSSI());
+    Serial.println ("");
   
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
     {
@@ -265,24 +261,24 @@ void SetupWifi()
         request->send(200, "/text.html",  SendHTML(BUTTON_2));
     });
 
-    server.on("/BT", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/BT3", HTTP_GET, [](AsyncWebServerRequest *request)
     {
         Serial.println("Button 3");
         request->send(200, "/text.html",  SendHTML(BUTTON_3));
     });
 
     server.begin();
-    Serial.println("Serveur HTTP Prêt");
+    Serial.println("HTTP Serveur Ready");
 }
 
 // ****************************************************************************
 
 String SendHTML(uint8_t Buttons)
 {
-    String ptr = "<!DOCTYPE html> <html>\n";
-    ptr +="<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
-    ptr +="<title>Contrôle des lucioles</title>\n";
-    ptr +="<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}\n";
+    String ptr = "<!DOCTYPE html> <html>";//\n";
+    ptr +="<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">";//\n";
+    ptr +="<title>Power Switch Control</title>";//\n";
+    ptr +="<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}";//\n";
     
     
     ptr +="<div class=\"container\">";
@@ -424,28 +420,28 @@ String SendHTML(uint8_t Buttons)
     ptr +="});";
 
     // Button
-    ptr +="body{margin-top: 50px;} h1 {color: #444444;margin: 50px auto 30px;} h3 {color: #444444;margin-bottom: 50px;}\n";
-    ptr +=".button {display: block;width: 80px;background-color: #1abc9c;border: none;color: white;padding: 13px 30px;text-decoration: none;font-size: 25px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}\n";
-    ptr +=".button-on {background-color: #1abc9c;}\n";
-    ptr +=".button-on:active {background-color: #16a085;}\n";
-    ptr +=".button-off {background-color: #34495e;}\n";
-    ptr +=".button-off:active {background-color: #2c3e50;}\n";
-    ptr +="p {font-size: 14px;color: #888;margin-bottom: 10px;}\n";
-    ptr +="</style>\n";
-    ptr +="</head>\n";
-    ptr +="<body>\n";
-    ptr +="<h1>Power Switch Timer</h1>\n";
-    ptr +="<h3>Copyright (c) Alain Royer 2020</h3>\n";
+    ptr +="body{margin-top: 50px;} h1 {color: #444444;margin: 50px auto 30px;} h3 {color: #444444;margin-bottom: 50px;}";//\n";
+    ptr +=".button {display: block;width: 80px;background-color: #1abc9c;border: none;color: white;padding: 13px 30px;text-decoration: none;font-size: 25px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}";//\n";
+    ptr +=".button-on {background-color: #1abc9c;}";//\n";
+    ptr +=".button-on:active {background-color: #16a085;}";//\n";
+    ptr +=".button-off {background-color: #34495e;}";//\n";
+    ptr +=".button-off:active {background-color: #2c3e50;}";//\n";
+    ptr +="p {font-size: 14px;color: #888;margin-bottom: 10px;}";//\n";
+    ptr +="</style>";//\n";
+    ptr +="</head>";//\n";
+    ptr +="<body>";//\n";
+    ptr +="<h1>Power Switch Timer</h1>";//\n";
+    ptr +="<h3>Copyright (c) Alain Royer 2022</h3>";//\n";
   
-    if(Buttons & BUTTON_1) { ptr +="<p>Buttons 1: ON  </p><a class=\"button button-off\" href=\"/led1off\">OFF</a>\n"; }
-    else                   { ptr +="<p>Buttons 1: OFF </p><a class=\"button button-on\" href=\"/led1on\">ON</a>\n";    }
-    if(Buttons & BUTTON_2) { ptr +="<p>Buttons 2: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>\n";   }
-    else                   { ptr +="<p>Buttons 2: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>\n";     }
-    if(Buttons & BUTTON_3) { ptr +="<p>Buttons 3: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>\n";   }
-    else                   { ptr +="<p>Buttons 3: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>\n";     }
+    if(Buttons & BUTTON_1) { ptr +="<p>Buttons 1: ON  </p><a class=\"button button-off\" href=\"/led1off\">OFF</a>";}//\n"; }
+    else                   { ptr +="<p>Buttons 1: OFF </p><a class=\"button button-on\" href=\"/led1on\">ON</a>";}//\n";    }
+    if(Buttons & BUTTON_2) { ptr +="<p>Buttons 2: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>";}//\n";   }
+    else                   { ptr +="<p>Buttons 2: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>";}//\n";     }
+    if(Buttons & BUTTON_3) { ptr +="<p>Buttons 3: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>";}//\n";   }
+    else                   { ptr +="<p>Buttons 3: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>";}//\n";     }
 
-    ptr +="</body>\n";
-    ptr +="</html>\n";
+    ptr +="</body>";//\n";
+    ptr +="</html>";//\n";
     return ptr;
 }
 
@@ -454,6 +450,7 @@ String SendHTML(uint8_t Buttons)
 float calculateSunrise(int year, int month, int day, float lat, float lng, int localOffset, int daylightSavings)
 {
     boolean rise = 1;
+    
     return calculateSunriseSunset(year, month, day, lat, lng, localOffset, daylightSavings, rise) ;
 }
 
@@ -462,6 +459,7 @@ float calculateSunrise(int year, int month, int day, float lat, float lng, int l
 float calculateSunset(int year, int month, int day, float lat, float lng, int localOffset, int daylightSavings)
 {
     boolean rise = 0;
+    
     return calculateSunriseSunset(year, month, day, lat, lng, localOffset, daylightSavings, rise) ;
 }
 
@@ -476,7 +474,7 @@ float calculateSunriseSunset(int year, int month, int day, float lat, float lng,
     float N1 = floor(275 * month / 9);
     float N2 = floor((month + 9) / 12);
     float N3 = (1 + floor((year - 4 * floor(year / 4) + 2) / 3));
-    float N = N1 - (N2 * N3) + day - 30;
+    float N  = N1 - (N2 * N3) + day - 30;
 
     // 2. convert the longitude to hour value and calculate an approximate time
     float lngHour = lng / 15.0;
@@ -485,35 +483,35 @@ float calculateSunriseSunset(int year, int month, int day, float lat, float lng,
     
     if(rise != 0)
     {
-        t = N + ((6 - lngHour) / 24);   //if rising time is desired:
+        t = N + ((6 - lngHour) / 24);       // If rising time is desired:
     }
     else
     {
-        t = N + ((18 - lngHour) / 24);   //if setting time is desired:
+        t = N + ((18 - lngHour) / 24);      // If setting time is desired:
     }
     
-    // 3. calculate the Sun's mean anomaly
+    // 3. Calculate the Sun's mean anomaly
     float M = (0.9856 * t) - 3.289;
 
-    // 4. calculate the Sun's true longitude
+    // 4. Calculate the Sun's true longitude
     float L = fmod(M + (1.916 * sin((PI / 180) * M)) + (0.020 * sin(2 * (PI / 180) * M)) + 282.634, 360.0);
 
-    // 5a. calculate the Sun's right ascension
+    // 5a. Calculate the Sun's right ascension
     float RA = fmod(180 / PI * atan(0.91764 * tan((PI / 180) * L)), 360.0);
 
-    // 5b. right ascension value needs to be in the same quadrant as L
+    // 5b. Right ascension value needs to be in the same quadrant as L
     float Lquadrant  = floor( L / 90) * 90;
     float RAquadrant = floor(RA / 90) * 90;
     RA = RA + (Lquadrant - RAquadrant);
 
-    // 5c. right ascension value needs to be converted into hours
+    // 5c. Right ascension value needs to be converted into hours
     RA = RA / 15;
 
-    // 6. calculate the Sun's declination
+    // 6. Calculate the Sun's declination
     float sinDec = 0.39782 * sin((PI / 180) * L);
     float cosDec = cos(asin(sinDec));
 
-    // 7a. calculate the Sun's local hour angle
+    // 7a. Calculate the Sun's local hour angle
     float cosH = (sin((PI / 180) * ZENITH) - (sinDec * sin((PI / 180) * lat))) / (cosDec * cos((PI / 180) * lat));
   
     /*
@@ -523,7 +521,7 @@ float calculateSunriseSunset(int year, int month, int day, float lat, float lng,
     the sun never sets on this location (on the specified date)
     */
 
-    // 7b. finish calculating H and convert into hours
+    // 7b. Finish calculating H and convert into hours
     float H = 0;
   
     if(rise != 0)
@@ -542,13 +540,13 @@ float calculateSunriseSunset(int year, int month, int day, float lat, float lng,
     //float H = (180/PI)*acos(cosH) // if setting time is desired:
     H = H / 15;
 
-    //8. calculate local mean time of rising/setting
+    //8. Calculate local mean time of rising/setting
     float T = H + RA - (0.06571 * t) - 6.622;
 
-    // 9. adjust back to UTC
+    // 9. Adjust back to UTC
     float UT = fmod(T - lngHour, 24.0);
 
-    // 10. convert UT value to local time zone of latitude/longitude
+    // 10. Convert UT value to local time zone of latitude/longitude
     return UT + localOffset + daylightSavings;
 }
 
@@ -687,5 +685,92 @@ void showDate()
     //  TFT.print("-");
     //  TFT.print(year(tt));
 }
+
+#endif
+
+
+
+#if 0
+
+/*************************************************************
+
+  This is a simple demo of sending and receiving some data.
+  Be sure to check out other examples!
+ *************************************************************/
+
+// Template ID, Device Name and Auth Token are provided by the Blynk.Cloud
+// See the Device Info tab, or Template settings
+#define BLYNK_TEMPLATE_ID           "TMPLx06okzdv"
+#define BLYNK_DEVICE_NAME           "Quickstart Device"
+#define BLYNK_AUTH_TOKEN            "hFR8OnG_Enja7NIu8QZTwiybDCypXWSX"
+
+
+// Comment this out to disable prints and save space
+#define BLYNK_PRINT Serial
+
+
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+
+char auth[] = BLYNK_AUTH_TOKEN;
+
+// Your WiFi credentials.
+// Set password to "" for open networks.
+char ssid[] = "MySSID";
+char pass[] = "MyPasswork";
+
+BlynkTimer timer;
+
+// This function is called every time the Virtual Pin 0 state changes
+BLYNK_WRITE(V0)
+{
+  // Set incoming value from pin V0 to a variable
+  int value = param.asInt();
+
+  // Update state
+  Blynk.virtualWrite(V1, value);
+}
+
+// This function is called every time the device is connected to the Blynk.Cloud
+BLYNK_CONNECTED()
+{
+  // Change Web Link Button message to "Congratulations!"
+  Blynk.setProperty(V3, "offImageUrl", "https://static-image.nyc3.cdn.digitaloceanspaces.com/general/fte/congratulations.png");
+  Blynk.setProperty(V3, "onImageUrl",  "https://static-image.nyc3.cdn.digitaloceanspaces.com/general/fte/congratulations_pressed.png");
+  Blynk.setProperty(V3, "url", "https://docs.blynk.io/en/getting-started/what-do-i-need-to-blynk/how-quickstart-device-was-made");
+}
+
+// This function sends Arduino's uptime every second to Virtual Pin 2.
+void myTimerEvent()
+{
+  // You can send any value at any time.
+  // Please don't send more that 10 values per second.
+  Blynk.virtualWrite(V2, millis() / 1000);
+}
+
+void setup()
+{
+  // Debug console
+  Serial.begin(115200);
+
+  Blynk.begin(auth, ssid, pass);
+  // You can also specify server:
+  //Blynk.begin(auth, ssid, pass, "blynk.cloud", 80);
+  //Blynk.begin(auth, ssid, pass, IPAddress(192,168,1,100), 8080);
+
+  // Setup a function to be called every second
+  timer.setInterval(1000L, myTimerEvent);
+}
+
+void loop()
+{
+  Blynk.run();
+  timer.run();
+  // You can inject your own code or combine it with other sketches.
+  // Check other examples on how to communicate with Blynk. Remember
+  // to avoid delay() function!
+}
+
 
 #endif
